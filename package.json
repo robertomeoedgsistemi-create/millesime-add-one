@@ -1,0 +1,24 @@
+{
+  "name": "millesime-add-one",
+  "version": "1.0.0",
+  "description": "Menu amministrativo Millesime per Shopify",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/robertomeoedgsistemi-create/millesime-add-one.git"
+  },
+  "keywords": [],
+  "author": "Roberto Meo",
+  "license": "UNLICENSED",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/robertomeoedgsistemi-create/millesime-add-one/issues"
+  },
+  "homepage": "https://github.com/robertomeoedgsistemi-create/millesime-add-one#readme",
+  "dependencies": {
+    "express": "^5.2.1"
+  }
+}
