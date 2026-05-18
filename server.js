@@ -589,7 +589,7 @@ app.get("/api/controllo-scorte", async (req, res) => {
 
       item.varianti += 1;
       item.ams02Disponibili += row.available;
-      item.depositoVitulazio += row.incoming;
+      item.depositoVitulazio = Math.max(item.depositoVitulazio, row.incoming);
     }
 
     for (const [codiceArticolo, qty] of soldMap.entries()) {
