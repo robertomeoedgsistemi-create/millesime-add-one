@@ -182,11 +182,11 @@ function layout(title, activePage, content) {
       color: #202223;
     }
 
-    .page {
-      max-width: 1400px;
-      margin: 0 auto;
-      padding: 24px;
-    }
+    ..page {
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 12px;
+}
 
     .header {
       background: #ffffff;
@@ -302,26 +302,29 @@ function layout(title, activePage, content) {
     table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 14px;
+      font-size: 11px;
       background: white;
     }
 
-    th {
-      text-align: left;
-      background: #f6f6f7;
-      border-bottom: 1px solid #dfe3e8;
-      padding: 12px;
-      font-weight: 600;
-      color: #202223;
-      white-space: nowrap;
-    }
+	th {
+	  text-align: left;
+	  background: #f6f6f7;
+	  border-bottom: 1px solid #dfe3e8;
+	  padding: 6px 4px;
+	  font-weight: 600;
+	  font-size: 10px;
+	  color: #202223;
+	  white-space: nowrap;
+	  line-height: 1.15;
+	}
 
     td {
-      border-bottom: 1px solid #edf0f2;
-      padding: 12px;
-      vertical-align: top;
-      white-space: nowrap;
-    }
+  border-bottom: 1px solid #edf0f2;
+  padding: 6px 4px;
+  vertical-align: top;
+  white-space: nowrap;
+  font-size: 10.5px;
+}
 
     td.num, th.num {
       text-align: right;
@@ -332,12 +335,12 @@ function layout(title, activePage, content) {
     }
 
     .badge {
-      display: inline-block;
-      background: #e4e5e7;
-      border-radius: 10px;
-      padding: 2px 8px;
-      font-size: 12px;
-    }
+  display: inline-block;
+  background: #e4e5e7;
+  border-radius: 10px;
+  padding: 1px 6px;
+  font-size: 10px;
+}
 
     @media print {
       body {
@@ -408,14 +411,16 @@ app.get("/controllo-scorte", (req, res) => {
         <table id="dataTable" style="display:none;">
           <thead>
             <tr>
-              <th>Codice articolo</th>
-              <th>Prodotto</th>
-              <th class="num">Varianti</th>
-              <th class="num">AMS01 venduti</th>
-              <th class="num">AMS01 disponibili</th>
-              <th class="num">AMS02 venduti</th>
-              <th class="num">AMS02 disponibili</th>
-              <th class="num">Deposito Vitulazio</th>
+			<th>Codice</th>
+			<th>Prodotto</th>
+			<th class="num">VARIANTI</th>
+			<th class="num">AMS01<br>Venduti</th>
+			<th class="num">AMS01<br>Disponibili</th>
+			<th class="num">AMS01<br>Magazzino</th>
+			<th class="num">AMS02<br>Venduti</th>
+			<th class="num">AMS02<br>Disponibili</th>
+			<th class="num">AMS02<br>Magazzino</th>
+			<th class="num">VITULAZIO<br>Deposito</th>
             </tr>
           </thead>
           <tbody id="tableBody"></tbody>
@@ -475,11 +480,13 @@ app.get("/controllo-scorte", (req, res) => {
               <td><strong>\${row.codiceArticolo}</strong></td>
               <td>\${row.prodotto}</td>
               <td class="num"><span class="badge">\${row.varianti}</span></td>
-              <td class="num">\${row.ams01Venduti}</td>
-              <td class="num">\${row.ams01Disponibili}</td>
-              <td class="num">\${row.ams02Venduti}</td>
-              <td class="num">\${row.ams02Disponibili}</td>
-              <td class="num">\${row.depositoVitulazio}</td>
+			  <td class="num">\${row.ams01Venduti}</td>
+  			  <td class="num">\${row.ams01Disponibili}</td>
+			  <td class="num">\${row.ams01ADeposito}</td>
+			  <td class="num">\${row.ams02Venduti}</td>
+			  <td class="num">\${row.ams02Disponibili}</td>
+   			  <td class="num">\${row.ams02ADeposito}</td>
+			  <td class="num">\${row.depositoVitulazio}</td>
             </tr>
           \`;
         }).join("");
@@ -492,10 +499,12 @@ app.get("/controllo-scorte", (req, res) => {
             "Prodotto",
             "Varianti",
             "AMS01 venduti",
-            "AMS01 disponibili",
-            "AMS02 venduti",
-            "AMS02 disponibili",
-            "Deposito Vitulazio"
+			"AMS01 disponibili",
+			"AMS01 a deposito",
+			"AMS02 venduti",
+			"AMS02 disponibili",
+			"AMS02 a deposito",
+			"Deposito Vitulazio"
           ]
         ];
 
@@ -504,11 +513,13 @@ app.get("/controllo-scorte", (req, res) => {
             row.codiceArticolo,
             row.prodotto,
             row.varianti,
-            row.ams01Venduti,
-            row.ams01Disponibili,
-            row.ams02Venduti,
-            row.ams02Disponibili,
-            row.depositoVitulazio
+			row.ams01Venduti,
+			row.ams01Disponibili,
+			row.ams01ADeposito,
+			row.ams02Venduti,
+			row.ams02Disponibili,
+			row.ams02ADeposito,
+			row.depositoVitulazio
           ]);
         });
 
@@ -573,23 +584,26 @@ app.get("/api/controllo-scorte", async (req, res) => {
       if (!row.codiceArticolo) continue;
 
       if (!groupedMap.has(row.codiceArticolo)) {
-        groupedMap.set(row.codiceArticolo, {
-          codiceArticolo: row.codiceArticolo,
-          prodotto: row.prodotto,
-          varianti: 0,
-          ams01Venduti: "-",
-          ams01Disponibili: "-",
-          ams02Venduti: 0,
-          ams02Disponibili: 0,
-          depositoVitulazio: 0,
-        });
+		   groupedMap.set(row.codiceArticolo, {
+ 		   codiceArticolo: row.codiceArticolo,
+		   prodotto: row.prodotto,
+		   varianti: 0,
+		   ams01Venduti: "-",
+		   ams01Disponibili: "-",
+		   ams01ADeposito: "-",
+		   ams02Venduti: 0,
+		   ams02Disponibili: 0,
+		   ams02ADeposito: 0,
+		   depositoVitulazio: 0,
+		 });
       }
 
       const item = groupedMap.get(row.codiceArticolo);
 
-      item.varianti += 1;
-      item.ams02Disponibili += row.available;
-      item.depositoVitulazio = Math.max(item.depositoVitulazio, row.incoming);
+	  item.varianti += 1;
+	  item.ams02Disponibili += row.available;
+	  item.ams02ADeposito += row.reserved;
+	  item.depositoVitulazio = Math.max(item.depositoVitulazio, row.incoming);
     }
 
     for (const [codiceArticolo, qty] of soldMap.entries()) {
@@ -664,7 +678,7 @@ async function readInventoryRowsAMS02(location) {
               tracked
               inventoryLevel(locationId: $locationId) {
                 id
-                quantities(names: ["available", "incoming", "on_hand"]) {
+				quantities(names: ["available", "incoming", "on_hand", "reserved"]) {
                   name
                   quantity
                 }
@@ -715,6 +729,7 @@ async function readInventoryRowsAMS02(location) {
         available: getQuantity(quantities, "available"),
         incoming: getQuantity(quantities, "incoming"),
         onHand: getQuantity(quantities, "on_hand"),
+		reserved: getQuantity(quantities, "reserved"),
       });
     }
 
