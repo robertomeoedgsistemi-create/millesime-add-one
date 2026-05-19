@@ -1,9 +1,10 @@
 require("dotenv").config();
 const express = require("express");
 
+
 const app = express();
 const PORT = process.env.PORT || 3000;
-
+app.use(express.json());
 // ======================================================
 // CONFIGURAZIONE NEGOZI / LOCATION
 // ======================================================
@@ -822,6 +823,272 @@ async function readSoldTodayAMS02(skuToCodiceMap) {
   return soldMap;
 }
 
+// ======================================================
+// POS - ESPONI MERCE
+// Sposta 1 pezzo da reserved ad available sulla location POS
+// ======================================================
+app.post("/api/pos/esponi-merce", async (req, res) => {
+  try {
+    const barcode = String(req.body?.barcode || "").trim();
+    const locationCode = String(req.body?.locationCode || "AMS02")
+      .trim()
+      .toUpperCase();
+
+    if (!barcode) {
+      return res.status(400).json({
+        ok: false,
+        code: "BARCODE_MISSING",
+        message: "Barcode mancante.",
+      });
+    }
+
+    const location = LOCATIONS[locationCode];
+
+    if (!location || !location.attivo || !location.locationId) {
+      return res.status(400).json({
+        ok: false,
+        code: "LOCATION_NOT_CONFIGURED",
+        message: "Location POS non configurata.",
+      });
+    }
+    // --------------------------------------------------
+    // 1. Cerca variante tramite barcode
+    // --------------------------------------------------
+
+    const findVariantQuery = `
+      query FindVariantByBarcode($query: String!) {
+        productVariants(first: 10, query: $query) {
+          edges {
+            node {
+              id
+              title
+              barcode
+              sku
+              inventoryItem {
+                id
+                tracked
+              }
+              product {
+                id
+                title
+                tags
+              }
+            }
+          }
+        }
+      }
+    `;
+
+    const barcodeQuery = `barcode:${barcode}`;
+
+    const variantData = await shopifyGraphql(findVariantQuery, {
+      query: barcodeQuery,
+    });
+
+    const variants = variantData.productVariants.edges.map((edge) => edge.node);
+
+    if (variants.length === 0) {
+      return res.status(404).json({
+        ok: false,
+        code: "BARCODE_NOT_FOUND",
+        message: "Barcode non trovato su Shopify.",
+      });
+    }
+
+    if (variants.length > 1) {
+      return res.status(409).json({
+        ok: false,
+        code: "BARCODE_DUPLICATED",
+        message: "Barcode duplicato su Shopify. Operazione bloccata.",
+        count: variants.length,
+      });
+    }
+
+    const variant = variants[0];
+    const product = variant.product || {};
+    const inventoryItem = variant.inventoryItem || {};
+
+    if (!inventoryItem.id) {
+      return res.status(400).json({
+        ok: false,
+        code: "INVENTORY_ITEM_MISSING",
+        message: "Inventory item mancante sulla variante Shopify.",
+      });
+    }
+
+    if (inventoryItem.tracked === false) {
+      return res.status(400).json({
+        ok: false,
+        code: "INVENTORY_NOT_TRACKED",
+        message: "Inventario non tracciato per questo articolo.",
+      });
+    }
+
+    // --------------------------------------------------
+    // 2. Legge reserved / available sulla location
+    // --------------------------------------------------
+
+    const readInventoryQuery = `
+      query ReadInventoryLevel($inventoryItemId: ID!, $locationId: ID!) {
+        inventoryItem(id: $inventoryItemId) {
+          id
+          inventoryLevel(locationId: $locationId) {
+            quantities(names: ["reserved", "available", "on_hand"]) {
+              name
+              quantity
+            }
+          }
+        }
+      }
+    `;
+
+    const inventoryData = await shopifyGraphql(readInventoryQuery, {
+      inventoryItemId: inventoryItem.id,
+      locationId: location.locationId,
+    });
+
+    const inventoryLevel =
+      inventoryData.inventoryItem &&
+      inventoryData.inventoryItem.inventoryLevel;
+
+    if (!inventoryLevel) {
+      return res.status(400).json({
+        ok: false,
+        code: "INVENTORY_LEVEL_MISSING",
+        message: "Articolo non presente nella location selezionata.",
+      });
+    }
+
+    const quantities = inventoryLevel.quantities || [];
+    const reservedBefore = getQuantity(quantities, "reserved");
+    const availableBefore = getQuantity(quantities, "available");
+    const onHandBefore = getQuantity(quantities, "on_hand");
+
+    if (reservedBefore < 1) {
+      return res.status(409).json({
+        ok: false,
+        code: "RESERVED_INSUFFICIENT",
+        message: "Articolo non presente a deposito oppure già disponibile.",
+        barcode,
+        locationCode,
+        productTitle: product.title || "",
+        variantTitle: variant.title || "",
+        sku: variant.sku || "",
+        reservedBefore,
+        availableBefore,
+        onHandBefore,
+      });
+    }
+
+    // --------------------------------------------------
+    // 3. Sposta 1 pezzo da reserved ad available
+    // --------------------------------------------------
+
+    const idempotencyKey =
+      "esponi-merce-" +
+      locationCode +
+      "-" +
+      barcode.replace(/[^a-zA-Z0-9_-]/g, "") +
+      "-" +
+      Date.now();
+
+    const referenceDocumentUri =
+      "millesime-pos://esponi-merce/" +
+      locationCode +
+      "/" +
+      encodeURIComponent(barcode) +
+      "/" +
+      Date.now();
+
+    const moveMutation = `
+      mutation MoveReservedToAvailable(
+        $input: InventoryMoveQuantitiesInput!,
+        $quantityNames: [String!]
+      ) {
+        inventoryMoveQuantities(input: $input) @idempotent(key: "${idempotencyKey}") {
+          userErrors {
+            field
+            message
+            code
+          }
+          inventoryAdjustmentGroup {
+            createdAt
+            reason
+            referenceDocumentUri
+            changes(quantityNames: $quantityNames) {
+              name
+              delta
+            }
+          }
+        }
+      }
+    `;
+
+    const moveData = await shopifyGraphql(moveMutation, {
+      input: {
+        reason: "correction",
+        referenceDocumentUri,
+        changes: [
+          {
+            quantity: 1,
+            inventoryItemId: inventoryItem.id,
+from: {
+  locationId: location.locationId,
+  name: "reserved",
+  ledgerDocumentUri: referenceDocumentUri,
+  changeFromQuantity: reservedBefore,
+},
+to: {
+  locationId: location.locationId,
+  name: "available",
+  changeFromQuantity: availableBefore,
+},          },
+        ],
+      },
+      quantityNames: ["reserved", "available"],
+    });
+
+    const result = moveData.inventoryMoveQuantities;
+    const userErrors = result?.userErrors || [];
+
+    if (userErrors.length > 0) {
+      return res.status(400).json({
+        ok: false,
+        code: "SHOPIFY_USER_ERROR",
+        message: "Errore Shopify durante lo spostamento quantità.",
+        errors: userErrors,
+      });
+    }
+
+    return res.json({
+      ok: true,
+      code: "OK",
+      message: "Articolo reso disponibile per la vendita.",
+      barcode,
+      locationCode,
+      locationId: location.locationId,
+      productTitle: product.title || "",
+      variantTitle: variant.title || "",
+      sku: variant.sku || "",
+      inventoryItemId: inventoryItem.id || "",
+      reservedBefore,
+      availableBefore,
+      onHandBefore,
+      reservedAfter: reservedBefore - 1,
+      availableAfter: availableBefore + 1,
+      onHandAfter: onHandBefore,
+      changes: result?.inventoryAdjustmentGroup?.changes || [],
+    });
+  } catch (err) {
+    console.error("Errore /api/pos/esponi-merce:", err);
+
+    return res.status(500).json({
+      ok: false,
+      code: "SERVER_ERROR",
+      message: err.message || "Errore interno server.",
+    });
+  }
+});
 // ======================================================
 // HEALTH
 // ======================================================
